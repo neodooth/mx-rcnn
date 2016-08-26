@@ -8,6 +8,7 @@ import cPickle
 from imdb_imagenet import IMDBImagenet
 from voc_eval import voc_eval
 from helper.processing.bbox_process import unique_boxes, filter_small_boxes
+from rcnn.config import config
 
 
 class ILSVRC(IMDBImagenet):
@@ -47,6 +48,9 @@ class ILSVRC(IMDBImagenet):
         :return: cache path
         """
         cache_path = os.path.join(self.root_path, 'cache')
+        # if config.TRAIN.END2END == 1:
+        if True:
+            cache_path += '_positive'
         if not os.path.exists(cache_path):
             os.mkdir(cache_path)
         return cache_path
@@ -57,7 +61,7 @@ class ILSVRC(IMDBImagenet):
                'label2words not found at: {}'.format(filename)
         with open(filename) as f:
             lines = f.read().splitlines()
-        classes = tuple([l.split(' ')[0] for l in lines])
+        classes = tuple(['#'.join(l.split(' ')[0::2]) for l in lines])
         result = ('__background__',) + classes
         return result
 
@@ -97,7 +101,11 @@ class ILSVRC(IMDBImagenet):
         return sizes
 
     def remove_negative_data(self):
-        positive_data_indices = [ind for (ind, name) in zip(range(len(self.image_set_index)), self.image_set_index) if 'extra' not in name]
+        if self.image_set != 'train':
+            return
+        with open(os.path.join(self.devkit_path, 'positive.txt')) as f:
+            pos_images = {_.split()[0]: 1 for _ in f}
+        positive_data_indices = [ind for (ind, name) in zip(range(len(self.image_set_index)), self.image_set_index) if name in pos_images]
         self.image_set_index = [self.image_set_index[x] for x in positive_data_indices]
         self.image_sizes = [self.image_sizes[x] for x in positive_data_indices]
         print 'Removed negative data,', len(self.image_set_index), len(self.image_sizes), 'remained'
@@ -301,10 +309,10 @@ class ILSVRC(IMDBImagenet):
 
         self.write_imagenet_results(detections)
 
-    def get_result_file_template(self):
+    def get_ilsvrc_results_file_template(self):
         res_file_folder = os.path.join(self.devkit_path, 'results', 'ILSVRC' + self.year, 'DET')
         comp_id = self.config['comp_id']
-        filename = comp_id + '_det_' + self.image_set + '_{:s}.txt'
+        filename = comp_id + '_det_' + self.image_set + '.txt'
         path = os.path.join(res_file_folder, filename)
         return path
 
@@ -321,7 +329,7 @@ class ILSVRC(IMDBImagenet):
                         continue
                     # the ILSVRCdevkit expects 1-based indices
                     for k in xrange(dets.shape[0]):
-                        f.write('{:s} {:d} {:.3f} {:.1f} {:.1f} {:.1f} {:.1f}\n'.
-                                format(index, cls_ind, dets[k, -1],
+                        f.write('{:d} {:d} {:.3f} {:.1f} {:.1f} {:.1f} {:.1f}\n'.
+                                format(im_ind + 1, cls_ind, dets[k, -1],
                                        dets[k, 0] + 1, dets[k, 1] + 1,
                                        dets[k, 2] + 1, dets[k, 3] + 1))
