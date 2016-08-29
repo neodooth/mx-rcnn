@@ -31,7 +31,7 @@ def bbox_overlaps(boxes, query_boxes):
     return overlaps
 
 
-def compute_bbox_regression_targets(rois, overlaps, labels):
+def compute_bbox_regression_targets(rois, overlaps, labels, i=-1):
     """
     given rois, overlaps, gt labels, compute bounding box regression targets
     :param rois: roidb[i]['boxes'] k * 4
@@ -39,13 +39,16 @@ def compute_bbox_regression_targets(rois, overlaps, labels):
     :param labels: roidb[i]['max_classes'] k * 1
     :return: targets[i][class, dx, dy, dw, dh] k * 5
     """
+    targets = np.zeros((rois.shape[0], 5), dtype=np.float32)
+
     # Ensure ROIs are floats
     rois = rois.astype(np.float, copy=False)
 
     # Indices of ground-truth ROIs
     gt_inds = np.where(overlaps == 1)[0]
     if len(gt_inds) == 0:
-        print 'something wrong : zero ground truth rois'
+        print 'something wrong: zero ground truth rois', i
+        return targets
     # Indices of examples for which we try to make predictions
     ex_inds = np.where(overlaps >= config.TRAIN.BBOX_REGRESSION_THRESH)[0]
 
@@ -58,7 +61,6 @@ def compute_bbox_regression_targets(rois, overlaps, labels):
     gt_rois = rois[gt_inds[gt_assignment], :]
     ex_rois = rois[ex_inds, :]
 
-    targets = np.zeros((rois.shape[0], 5), dtype=np.float32)
     targets[ex_inds, 0] = labels[ex_inds]
     targets[ex_inds, 1:] = bbox_transform(ex_rois, gt_rois)
     return targets
