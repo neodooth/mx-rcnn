@@ -37,7 +37,7 @@ class IMDBImagenet(object):
         roidb = []
         st = time.time()
         for i in range(self.num_images):
-            if i % 100 == 0:
+            if i % 1000 == 0:
                 print 'create_roidb_from_box_list processed', i, self.num_images, time.time() - st
                 st = time.time()
             boxes = box_list[i]

@@ -11,6 +11,10 @@ from helper.processing.bbox_process import unique_boxes, filter_small_boxes
 from rcnn.config import config
 
 
+# TASK = 'VID'
+TASK = 'DET'
+
+
 class ILSVRC(IMDBImagenet):
     def __init__(self, image_set, year, root_path, devkit_path):
         """
@@ -49,14 +53,14 @@ class ILSVRC(IMDBImagenet):
         """
         cache_path = os.path.join(self.root_path, 'cache')
         # if config.TRAIN.END2END == 1:
-        if True:
-            cache_path += '_positive'
+        if TASK == 'VID':
+            cache_path += '_vid'
         if not os.path.exists(cache_path):
             os.mkdir(cache_path)
         return cache_path
 
     def load_imagenet_label2words(self):
-        filename = os.path.join(self.data_path, 'devkit', 'data', 'map_det.txt')
+        filename = os.path.join(self.data_path, 'devkit', 'data', 'map_{}.txt'.format(TASK.lower()))
         assert os.path.exists(filename), \
                'label2words not found at: {}'.format(filename)
         with open(filename) as f:
@@ -70,7 +74,7 @@ class ILSVRC(IMDBImagenet):
         find out which indexes correspond to given image set (train or val)
         :return:
         """
-        image_set_index_file = os.path.join(self.data_path, 'ImageSets', 'DET', self.image_set + '.txt')
+        image_set_index_file = os.path.join(self.data_path, 'ImageSets', TASK, self.image_set + '.txt')
         assert os.path.exists(image_set_index_file), 'Path does not exist: {}'.format(image_set_index_file)
         with open(image_set_index_file) as f:
             image_set_index = [x.strip().split(' ')[0] for x in f.readlines()] #[:150000]
@@ -82,9 +86,9 @@ class ILSVRC(IMDBImagenet):
         :param index: index of a specific image
         :return: full path of this image
         """
-        image_file = os.path.join(self.data_path, 'Data', 'DET', self.image_set, index + '.JPEG')
+        image_file = os.path.join(self.data_path, 'Data', TASK, self.image_set, index + '.JPEG')
         if index in self.extra_ratio_image_index_dic:
-            image_file = os.path.join(self.devkit_path, 'data_to_replace', 'Data', 'DET', self.image_set, index + '.JPEG')
+            image_file = os.path.join(self.devkit_path, 'data_to_replace', 'Data', TASK, self.image_set, index + '.JPEG')
         assert os.path.exists(image_file), 'Path does not exist: {}'.format(image_file)
         return image_file
 
@@ -163,49 +167,52 @@ class ILSVRC(IMDBImagenet):
         import xml.etree.ElementTree as ET
         if index in self.extra_ratio_image_index_dic:
             print 'Extra large ratio image', index
-            filename = os.path.join(self.devkit_path, 'data_to_replace', 'Annotations', 'DET', self.image_set, index + '.xml')
+            filename = os.path.join(self.devkit_path, 'data_to_replace', 'Annotations', TASK, self.image_set, index + '.xml')
         else:
-            filename = os.path.join(self.data_path, 'Annotations', 'DET', self.image_set, index + '.xml')
+            filename = os.path.join(self.data_path, 'Annotations', TASK, self.image_set, index + '.xml')
 
         # Images without any annotated objects may not have a corresponding xml file.
         if not os.path.exists(filename):
-            print 'Did not found', filename
+            if 'train' in self.image_set:
+                print 'Did not found', filename
             tree = ET.fromstring('<useless></useless>')
         else:
             tree = ET.parse(filename)
 
         objs = tree.findall('object')
         num_objs = len(objs)
-        if num_objs == 0:
+        if num_objs == 0 and 'train' in self.image_set:
             print 'No objects found from {}'.format(index)
 
         boxes = np.zeros((num_objs, 4), dtype=np.uint16)
         gt_classes = np.zeros((num_objs), dtype=np.int32)
         overlaps = np.zeros((num_objs, self.num_classes), dtype=np.float32)
 
-        class_to_index = dict(zip(self.classes, range(self.num_classes)))
-        img_w = int(tree.find('size').find('width').text)
-        img_h = int(tree.find('size').find('height').text)
-        # Load object bounding boxes into a data frame.
-        for ix, obj in enumerate(objs):
-            bbox = obj.find('bndbox')
-            x1 = float(bbox.find('xmin').text)
-            y1 = float(bbox.find('ymin').text)
-            x2 = float(bbox.find('xmax').text)
-            y2 = float(bbox.find('ymax').text)
-            if x1 >= x2 or y1 >= y2:
-                print "Malformed bounding box wxh:{} {} {} {} {} {} {}".format(
-                        img_w, img_h, x1, x2, y1, y2, index)
-                continue
+        if 'trian' in self.image_set or 'val' in self.image_set:
+            classes = [c.split('#')[0] for c in self.classes]
+            class_to_index = dict(zip(classes, range(self.num_classes)))
+            img_w = int(tree.find('size').find('width').text)
+            img_h = int(tree.find('size').find('height').text)
+            # Load object bounding boxes into a data frame.
+            for ix, obj in enumerate(objs):
+                bbox = obj.find('bndbox')
+                x1 = float(bbox.find('xmin').text)
+                y1 = float(bbox.find('ymin').text)
+                x2 = float(bbox.find('xmax').text)
+                y2 = float(bbox.find('ymax').text)
+                if x1 >= x2 or y1 >= y2:
+                    print "Malformed bounding box wxh:{} {} {} {} {} {} {}".format(
+                            img_w, img_h, x1, x2, y1, y2, index)
+                    continue
 
-            if x2 > img_w - 1:
-                x2 = img_w - 1
-            if y2 > img_h - 1:
-                y2 = img_h - 1
-            cls = class_to_index[obj.find('name').text.lower().strip()]
-            boxes[ix, :] = [x1, y1, x2, y2]
-            gt_classes[ix] = cls
-            overlaps[ix, cls] = 1.0
+                if x2 > img_w - 1:
+                    x2 = img_w - 1
+                if y2 > img_h - 1:
+                    y2 = img_h - 1
+                cls = class_to_index[obj.find('name').text.lower().strip()]
+                boxes[ix, :] = [x1, y1, x2, y2]
+                gt_classes[ix] = cls
+                overlaps[ix, cls] = 1.0
 
         overlaps = scipy.sparse.csr_matrix(overlaps)
 
@@ -273,7 +280,7 @@ class ILSVRC(IMDBImagenet):
         assert os.path.exists(rpn_file), 'rpn data not found at {}'.format(rpn_file)
         with open(rpn_file, 'rb') as f:
             box_list = cPickle.load(f)
-        print 'loaded {}'.format(rpn_file)
+        print 'loaded {}'.format(rpn_file), len(box_list), 'boxes'
         return self.create_roidb_from_box_list(box_list, gt_roidb)
 
     def rpn_roidb(self, gt_roidb):
@@ -290,7 +297,7 @@ class ILSVRC(IMDBImagenet):
             roidb = self.load_rpn_roidb(gt_roidb)
         return roidb
 
-    def evaluate_detections(self, detections):
+    def evaluate_detections(self, detections, suffix=''):
         """
         top level evaluations
         :param detections: result matrix, [bbox, confidence]
@@ -303,21 +310,21 @@ class ILSVRC(IMDBImagenet):
         year_folder = os.path.join(self.devkit_path, 'results', 'ILSVRC' + self.year)
         if not os.path.exists(year_folder):
             os.mkdir(year_folder)
-        res_file_folder = os.path.join(self.devkit_path, 'results', 'ILSVRC' + self.year, 'DET')
+        res_file_folder = os.path.join(self.devkit_path, 'results', 'ILSVRC' + self.year, TASK)
         if not os.path.exists(res_file_folder):
             os.mkdir(res_file_folder)
 
-        self.write_imagenet_results(detections)
+        self.write_imagenet_results(detections, suffix=suffix)
 
-    def get_ilsvrc_results_file_template(self):
-        res_file_folder = os.path.join(self.devkit_path, 'results', 'ILSVRC' + self.year, 'DET')
+    def get_ilsvrc_results_file_template(self, suffix=''):
+        res_file_folder = os.path.join(self.devkit_path, 'results', 'ILSVRC' + self.year, TASK)
         comp_id = self.config['comp_id']
-        filename = comp_id + '_det_' + self.image_set + '.txt'
+        filename = comp_id + '_det_' + self.image_set + '.txt' + suffix
         path = os.path.join(res_file_folder, filename)
         return path
 
-    def write_imagenet_results(self, all_boxes):
-        filename = self.get_ilsvrc_results_file_template()
+    def write_imagenet_results(self, all_boxes, suffix=''):
+        filename = self.get_ilsvrc_results_file_template(suffix=suffix)
         with open(filename, 'wt') as f:
             for cls_ind, cls in enumerate(self.classes):
                 if cls == '__background__':
@@ -333,3 +340,10 @@ class ILSVRC(IMDBImagenet):
                                 format(im_ind + 1, cls_ind, dets[k, -1],
                                        dets[k, 0] + 1, dets[k, 1] + 1,
                                        dets[k, 2] + 1, dets[k, 3] + 1))
+
+
+if __name__ == '__main__':
+    pass
+    '''
+    [ap recall precision] = eval_detection('/local/zjq/project/imagenet2016/det/faster-rcnn/mx-rcnn/data/ILSVRCdevkit/results/ILSVRC2016/DET/rcnn3/comp4_det_val.txt-multiscaleroi-epoch1', '../../Annotations/DET/val/', '../data/meta_det.mat', '../../ImageSets/DET/val.txt', '../data/ILSVRC2015_det_validation_blacklist.txt', '../data/ILSVRC2015_det_validation_ground_truth.mat');
+    '''
