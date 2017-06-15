@@ -3,11 +3,12 @@ import numpy as np
 
 from rcnn.config import config
 from helper.processing.bbox_transform import bbox_pred, clip_boxes
+from rcnn.minibatch import scale_roi
 
 
 class Detector(object):
     def __init__(self, symbol, ctx=None,
-                 arg_params=None, aux_params=None):
+                 arg_params=None, aux_params=None, roi_scales=[]):
         self.symbol = symbol
         self.ctx = ctx
         if self.ctx is None:
@@ -15,6 +16,7 @@ class Detector(object):
         self.arg_params = arg_params
         self.aux_params = aux_params
         self.executor = None
+        self.roi_scales = roi_scales
 
     def im_detect(self, im_array, im_info=None, roi_array=None):
         """
@@ -43,14 +45,22 @@ class Detector(object):
         else:
             self.arg_params['data'] = mx.nd.array(im_array, self.ctx)
             self.arg_params['rois'] = mx.nd.array(roi_array, self.ctx)
+            kwshapes = {'data': self.arg_params['data'].shape, 'rois': self.arg_params['rois'].shape}
+            for sc in self.roi_scales:
+                name = 'roi_{}x'.format(sc)
+                self.arg_params[name] = mx.nd.array(scale_roi(roi_array.copy(), sc, (im_array.shape[3], im_array.shape[2])))
+                kwshapes[name] = self.arg_params[name].shape
+
             arg_shapes, out_shapes, aux_shapes = \
-                self.symbol.infer_shape(data=self.arg_params['data'].shape, rois=self.arg_params['rois'].shape)
+                self.symbol.infer_shape(**kwshapes)
+                # self.symbol.infer_shape(data=self.arg_params['data'].shape, rois=self.arg_params['rois'].shape, )
 
         # fill in label and aux
         arg_shapes_dict = {name: shape for name, shape in zip(self.symbol.list_arguments(), arg_shapes)}
         self.arg_params['cls_prob_label'] = mx.nd.zeros(arg_shapes_dict['cls_prob_label'], self.ctx)
-        aux_names = self.symbol.list_auxiliary_states()
-        self.aux_params = {k: mx.nd.zeros(s, self.ctx) for k, s in zip(aux_names, aux_shapes)}
+        # must comment out this line, otherwise bn params will be erased!!!
+        # aux_names = self.symbol.list_auxiliary_states()
+        # self.aux_params = {k: mx.nd.zeros(s, self.ctx) for k, s in zip(aux_names, aux_shapes)}
 
         # execute
         self.executor = self.symbol.bind(self.ctx, self.arg_params, args_grad=None,
@@ -75,5 +85,8 @@ class Detector(object):
             # map back to original
             scores = scores[inv_index, :]
             pred_boxes = pred_boxes[inv_index, :]
+
+        del self.executor
+        self.executor = None
 
         return scores, pred_boxes

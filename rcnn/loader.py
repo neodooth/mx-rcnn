@@ -5,9 +5,11 @@ from config import config
 from mxnet.executor_manager import _split_input_slice
 from helper.processing.image_processing import tensor_vstack
 
+# import ipdb as pdb
+
 
 class ROIIter(mx.io.DataIter):
-    def __init__(self, roidb, batch_size=2, shuffle=False, mode='train', ctx=None, work_load_list=None):
+    def __init__(self, roidb, batch_size=2, shuffle=False, mode='train', ctx=None, work_load_list=None, roi_scales=[]):
         """
         This Iter will provide roi data to Fast R-CNN network
         :param roidb: must be preprocessed
@@ -19,6 +21,8 @@ class ROIIter(mx.io.DataIter):
         :return: ROIIter
         """
         super(ROIIter, self).__init__()
+
+        self.roi_scales = roi_scales
 
         self.roidb = roidb
         self.batch_size = batch_size
@@ -40,12 +44,16 @@ class ROIIter(mx.io.DataIter):
         self.label = None
         self.get_batch()
         self.data_name = ['data', 'rois']
+        self.data_name += ['roi_{}x'.format(_) for _ in self.roi_scales]
         self.label_name = ['label', 'bbox_target', 'bbox_inside_weight', 'bbox_outside_weight']
 
     @property
     def provide_data(self):
         if self.mode == 'train':
-            return [('data', self.data[0].shape), ('rois', self.data[1].shape)]
+            ret = [('data', self.data[0].shape), ('rois', self.data[1].shape)]
+            for i in range(len(self.roi_scales)):
+                ret += [((self.data_name[i + 2], self.data[i + 2].shape))]
+            return ret
         else:
             return [(k, v.shape) for k, v in self.data.items()]
 
@@ -70,9 +78,14 @@ class ROIIter(mx.io.DataIter):
                 horz_inds = np.where(horz)[0]
                 vert_inds = np.where(vert)[0]
                 inds = np.hstack((np.random.permutation(horz_inds), np.random.permutation(vert_inds)))
-                inds = np.reshape(inds, (-1, 2))
-                row_perm = np.random.permutation(np.arange(inds.shape[0]))
-                inds = np.reshape(inds[row_perm, :], (-1, ))
+                if inds.shape[0] % 2:
+                    inds_ = np.reshape(inds[:-1], (-1, 2))
+                    row_perm = np.random.permutation(np.arange(inds_.shape[0]))
+                    inds[:-1] = np.reshape(inds_[row_perm, :], (-1, ))
+                else:
+                    inds = np.reshape(inds, (-1, 2))
+                    row_perm = np.random.permutation(np.arange(inds.shape[0]))
+                    inds = np.reshape(inds[row_perm, :], (-1, ))
                 self.index = inds
             else:
                 np.random.shuffle(self.index)
@@ -89,6 +102,14 @@ class ROIIter(mx.io.DataIter):
                                    provide_data=self.provide_data, provide_label=self.provide_label)
         else:
             raise StopIteration
+
+    def get_i(self, i):
+        self.cur = i
+        self.get_batch()
+        self.cur += self.batch_size
+        return mx.io.DataBatch(data=self.data, label=self.label,
+                               pad=self.getpad(), index=self.getindex(),
+                               provide_data=self.provide_data, provide_label=self.provide_label)
 
     def getindex(self):
         return self.cur / self.batch_size
@@ -118,9 +139,10 @@ class ROIIter(mx.io.DataIter):
             label_list = []
             for islice in slices:
                 iroidb = [roidb[i] for i in range(islice.start, islice.stop)]
-                data, label = minibatch.get_minibatch(iroidb, self.num_classes, self.mode)
+                data, label = minibatch.get_minibatch(iroidb, self.num_classes, self.mode, self.roi_scales)
                 data_list.append(data)
                 label_list.append(label)
+            # pdb.set_trace()
 
             all_data = dict()
             for key in data_list[0].keys():
@@ -132,6 +154,8 @@ class ROIIter(mx.io.DataIter):
 
             self.data = [mx.nd.array(all_data['data']),
                          mx.nd.array(all_data['rois'])]
+            for s in self.roi_scales:
+                self.data.append(mx.nd.array(all_data['roi_{}x'.format(s)]))
             self.label = [mx.nd.array(all_label['label']),
                           mx.nd.array(all_label['bbox_target']),
                           mx.nd.array(all_label['bbox_inside_weight']),
@@ -180,21 +204,29 @@ class AnchorLoader(mx.io.DataIter):
         self.get_batch()
         self.data_name = ['data', 'im_info']
         self.label_name = ['label', 'bbox_target', 'bbox_inside_weight', 'bbox_outside_weight']
+        if config.TRAIN.END2END == 1:
+            self.label_name.append('gt_boxes')
 
     @property
     def provide_data(self):
         if self.mode == 'train':
-            return [('data', self.data[0].shape)]
+            provide_data_ = [('data', self.data[0].shape)]
+            if config.TRAIN.END2END == 1:
+                provide_data_.append(('im_info', self.data[1].shape))
+            return provide_data_
         else:
             return [(k, v.shape) for k, v in self.data.items()]
 
     @property
     def provide_label(self):
         if self.mode == 'train':
-            return [('label', self.label[0].shape),
-                    ('bbox_target', self.label[1].shape),
-                    ('bbox_inside_weight', self.label[2].shape),
-                    ('bbox_outside_weight', self.label[3].shape)]
+            provide_label_ = [('label', self.label[0].shape),
+                              ('bbox_target', self.label[1].shape),
+                              ('bbox_inside_weight', self.label[2].shape),
+                              ('bbox_outside_weight', self.label[3].shape)]
+            if config.TRAIN.END2END == 1:
+                provide_label_.append(('gt_boxes', self.label[4].shape))
+            return provide_label_
         else:
             return [(k, v.shape) for k, v in self.data.items()]
 
@@ -209,12 +241,19 @@ class AnchorLoader(mx.io.DataIter):
                 horz_inds = np.where(horz)[0]
                 vert_inds = np.where(vert)[0]
                 inds = np.hstack((np.random.permutation(horz_inds), np.random.permutation(vert_inds)))
-                inds = np.reshape(inds, (-1, 2))
-                row_perm = np.random.permutation(np.arange(inds.shape[0]))
-                inds = np.reshape(inds[row_perm, :], (-1, ))
+                if inds.shape[0] % 2:
+                    inds_ = np.reshape(inds[:-1], (-1, 2))
+                    row_perm = np.random.permutation(np.arange(inds_.shape[0]))
+                    inds[:-1] = np.reshape(inds_[row_perm, :], (-1, ))
+                else:
+                    inds = np.reshape(inds, (-1, 2))
+                    row_perm = np.random.permutation(np.arange(inds.shape[0]))
+                    inds = np.reshape(inds[row_perm, :], (-1, ))
                 self.index = inds
             else:
                 np.random.shuffle(self.index)
+        # print 'setting batch 0 to index 0'
+        # self.index[0] = 0
 
     def iter_next(self):
         return self.cur + self.batch_size <= self.size
@@ -241,6 +280,10 @@ class AnchorLoader(mx.io.DataIter):
     def get_batch(self):
         cur_from = self.cur
         cur_to = min(cur_from + self.batch_size, self.size)
+
+        for i in range(cur_from, cur_to):
+            print 'this batch', self.index[i]
+
         roidb = [self.roidb[self.index[i]] for i in range(cur_from, cur_to)]
         if self.mode == 'test':
             self.data, self.label = minibatch.get_minibatch(roidb, self.num_classes, self.mode)
@@ -278,17 +321,23 @@ class AnchorLoader(mx.io.DataIter):
                 label = minibatch.assign_anchor(feat_shape, label['gt_boxes'], data['im_info'],
                                                 self.feat_stride, self.anchor_scales,
                                                 self.anchor_ratios, self.allowed_border)
-                del data['im_info']
+                # del data['im_info']
                 new_label_list.append(label)
 
             all_data = dict()
             for key in ['data']:
                 all_data[key] = tensor_vstack([batch[key] for batch in data_list])
+            if config.TRAIN.END2END == 1:
+                for key in ['im_info']:
+                    all_data[key] = tensor_vstack([batch[key] for batch in data_list])
 
             all_label = dict()
             all_label['label'] = tensor_vstack([batch['label'] for batch in new_label_list], pad=-1)
             for key in ['bbox_target', 'bbox_inside_weight', 'bbox_outside_weight']:
                 all_label[key] = tensor_vstack([batch[key] for batch in new_label_list])
+            if config.TRAIN.END2END == 1:
+                for key in ['gt_boxes']:
+                    all_label[key] = tensor_vstack([batch[key] for batch in new_label_list])
 
             self.data = [mx.nd.array(all_data['data'])]
 
@@ -296,3 +345,6 @@ class AnchorLoader(mx.io.DataIter):
                           mx.nd.array(all_label['bbox_target']),
                           mx.nd.array(all_label['bbox_inside_weight']),
                           mx.nd.array(all_label['bbox_outside_weight'])]
+            if config.TRAIN.END2END == 1:
+                self.data.append(mx.nd.array(all_data['im_info']))
+                self.label.append(mx.nd.array(all_label['gt_boxes']))

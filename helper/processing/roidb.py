@@ -4,8 +4,11 @@ basic format [image_index]['boxes', 'gt_classes', 'gt_overlaps', 'flipped']
 extended ['image', 'max_classes', 'max_overlaps', 'bbox_targets']
 """
 
-import cv2
 import numpy as np
+import time
+import cv2
+
+import pdb
 
 from bbox_regression import compute_bbox_regression_targets
 from rcnn.config import config
@@ -19,12 +22,18 @@ def prepare_roidb(imdb, roidb):
     :return: None
     """
     print 'prepare roidb'
+    st = time.time()
     for i in range(len(roidb)):  # image_index
         roidb[i]['image'] = imdb.image_path_from_index(imdb.image_set_index[i])
         if config.TRAIN.ASPECT_GROUPING:
-            size = cv2.imread(roidb[i]['image']).shape
-            roidb[i]['height'] = size[0]
-            roidb[i]['width'] = size[1]
+            try:
+                size = imdb.image_sizes[i]
+                roidb[i]['height'] = size[1]
+                roidb[i]['width'] = size[0]
+            except:
+                size = cv2.imread(roidb[i]['image']).shape
+                roidb[i]['height'] = size[0]
+                roidb[i]['width'] = size[1]
         gt_overlaps = roidb[i]['gt_overlaps'].toarray()
         max_overlaps = gt_overlaps.max(axis=1)
         max_classes = gt_overlaps.argmax(axis=1)
@@ -37,6 +46,9 @@ def prepare_roidb(imdb, roidb):
         # foreground roi => foreground class
         nonzero_indexes = np.where(max_overlaps > 0)[0]
         assert all(max_classes[nonzero_indexes] != 0)
+
+        if (i + 1) % 10000 == 0:
+            print 'prepared {} images, used {:3f}s'.format(i+1, time.time() - st)
 
 
 def add_bbox_regression_targets(roidb):
@@ -51,12 +63,17 @@ def add_bbox_regression_targets(roidb):
 
     num_images = len(roidb)
     num_classes = roidb[0]['gt_overlaps'].shape[1]
+    st = time.time()
     for im_i in range(num_images):
+        if im_i % 10000 == 0:
+            print 'add_bbox_regression_targets processed', im_i, time.time() - st
+            st = time.time()
         rois = roidb[im_i]['boxes']
         max_overlaps = roidb[im_i]['max_overlaps']
         max_classes = roidb[im_i]['max_classes']
-        roidb[im_i]['bbox_targets'] = compute_bbox_regression_targets(rois, max_overlaps, max_classes)
+        roidb[im_i]['bbox_targets'] = compute_bbox_regression_targets(rois, max_overlaps, max_classes, im_i)
 
+    print 'computing mean/stds'
     if config.TRAIN.BBOX_NORMALIZATION_PRECOMPUTED:
         # use fixed / precomputed means and stds instead of empirical values
         means = np.tile(np.array(config.TRAIN.BBOX_MEANS), (num_classes, 1))
@@ -66,7 +83,10 @@ def add_bbox_regression_targets(roidb):
         class_counts = np.zeros((num_classes, 1)) + config.EPS
         sums = np.zeros((num_classes, 4))
         squared_sums = np.zeros((num_classes, 4))
+        st = time.time()
         for im_i in range(num_images):
+            if im_i % 1000 == 0:
+                print 'compute mean/stds processed', im_i, time.time() - st
             targets = roidb[im_i]['bbox_targets']
             for cls in range(1, num_classes):
                 cls_indexes = np.where(targets[:, 0] == cls)[0]
@@ -80,7 +100,11 @@ def add_bbox_regression_targets(roidb):
         stds = np.sqrt(squared_sums / class_counts - means ** 2)
 
     # normalized targets
+    print 'normalizing targets'
+    st = time.time()
     for im_i in range(num_images):
+        if im_i % 1000 == 0:
+            print 'normalization processed', im_i, time.time() - st
         targets = roidb[im_i]['bbox_targets']
         for cls in range(1, num_classes):
             cls_indexes = np.where(targets[:, 0] == cls)[0]

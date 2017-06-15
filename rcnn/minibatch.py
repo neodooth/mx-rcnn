@@ -13,7 +13,8 @@ final:  {'label': [batch_size, 1] <- [batch_size, num_anchors, feat_height, feat
 Fast R-CNN:
 data =
     {'data': [num_images, c, h, w],
-    'rois': [num_images, num_rois, 5]}
+    'rois': [num_images, num_rois, 5],
+    'global_roi': [num_images, num_rois, 5]}
 label =
     {'label': [num_images, num_rois],
     'bbox_target': [num_images, num_rois, 4 * num_classes],
@@ -24,6 +25,7 @@ label =
 import cv2
 import numpy as np
 import numpy.random as npr
+# import ipdb as pdb
 
 from helper.processing import image_processing
 from helper.processing.bbox_regression import expand_bbox_regression_targets
@@ -33,7 +35,31 @@ from helper.processing.bbox_transform import bbox_transform
 from rcnn.config import config
 
 
-def get_minibatch(roidb, num_classes, mode='test'):
+def scale_roi(rois, scale, border):
+    # rois (?, ?, 5)
+    # scale 1.5/2/4
+    # border (w, h)
+    # pdb.set_trace()
+    tmp = rois.reshape((-1, 5))
+    w = tmp[:, 3] - tmp[:, 1]
+    h = tmp[:, 4] - tmp[:, 2]
+    ctr_x = tmp[:, 1] + 0.5 * w
+    ctr_y = tmp[:, 2] + 0.5 * h
+    scaled_w = w * scale
+    scaled_h = h * scale
+    tmp[:, 1] = ctr_x - scaled_w / 2.
+    tmp[:, 2] = ctr_y - scaled_h / 2.
+    tmp[:, 3] = ctr_x + scaled_w / 2.
+    tmp[:, 4] = ctr_y + scaled_h / 2.
+    # crop roi so they are inside the image
+    tmp[:, 1][np.where(tmp[:, 1] < 0)] = 0
+    tmp[:, 2][np.where(tmp[:, 2] < 0)] = 0
+    tmp[:, 3][np.where(tmp[:, 3] > border[0] - 1)] = border[0] - 1
+    tmp[:, 4][np.where(tmp[:, 4] > border[1] - 1)] = border[1] - 1
+    return tmp.reshape(rois.shape)
+
+
+def get_minibatch(roidb, num_classes, mode='test', roi_scales=[]):
     """
     return minibatch of images in roidb
     :param roidb: a list of dict, whose length controls batch size
@@ -52,6 +78,7 @@ def get_minibatch(roidb, num_classes, mode='test'):
         cfg_key = 'TEST'
 
     if config[cfg_key].HAS_RPN:
+        # train_rpn(AnchorLoader), test_rpn(ROIIter)
         assert len(roidb) == 1, 'Single batch only'
         assert len(im_scales) == 1, 'Single batch only'
         im_info = np.array([[im_array.shape[2], im_array.shape[3], im_scales[0]]], dtype=np.float32)
@@ -69,6 +96,7 @@ def get_minibatch(roidb, num_classes, mode='test'):
             label = {'gt_boxes': gt_boxes}
     else:
         if mode == 'train':
+            # train_rcnn(ROIIter)
             assert config.TRAIN.BATCH_SIZE % config.TRAIN.BATCH_IMAGES == 0, \
                 'BATCHIMAGES {} must devide BATCHSIZE {}'.format(config.TRAIN.BATCH_IMAGES, config.TRAIN.BATCH_SIZE)
             rois_per_image = config.TRAIN.BATCH_SIZE / config.TRAIN.BATCH_IMAGES
@@ -79,7 +107,10 @@ def get_minibatch(roidb, num_classes, mode='test'):
             bbox_targets_array = list()
             bbox_inside_array = list()
 
+            # pdb.set_trace()
+
             for im_i in range(num_images):
+                # rois coordinates are relative to the scaled image size
                 im_rois, labels, bbox_targets, bbox_inside_weights, overlaps = \
                     sample_rois(roidb[im_i], fg_rois_per_image, rois_per_image, num_classes)
 
@@ -108,6 +139,7 @@ def get_minibatch(roidb, num_classes, mode='test'):
                      'bbox_inside_weight': bbox_inside_array,
                      'bbox_outside_weight': bbox_outside_array}
         else:
+            # test_rcnn(ROIIter)
             rois_array = list()
             for im_i in range(num_images):
                 im_rois = roidb[im_i]['boxes']
@@ -120,6 +152,11 @@ def get_minibatch(roidb, num_classes, mode='test'):
             data = {'data': im_array,
                     'rois': rois_array}
             label = {}
+
+        # data['global_roi'] = np.array([[[_, 0., 0., im_array.shape[3], im_array.shape[2]] for x in range(data['rois'].shape[1])] for _ in range(num_images)])
+        for sc in roi_scales:
+            data['roi_{}x'.format(sc)] = scale_roi(data['rois'].copy(), sc, (im_array.shape[3], im_array.shape[2]))
+        # pdb.set_trace()
 
     return data, label
 
@@ -136,7 +173,11 @@ def get_image_array(roidb, scales, scale_indexes):
     processed_ims = []
     im_scales = []
     for i in range(num_images):
-        im = cv2.imread(roidb[i]['image'])
+        newp = roidb[i]['image']
+        newp = roidb[i]['image'].replace('home/zhangjiangqi', 'local/zjq')
+        # newp = roidb[i]['image'].replace('local/zjq', 'home/zhangjiangqi')
+        print 'reading', newp
+        im = cv2.imread(newp)
         if roidb[i]['flipped']:
             im = im[:, ::-1, :]
         target_size = scales[scale_indexes[i]]
@@ -369,7 +410,10 @@ def assign_anchor(feat_shape, gt_boxes, im_info, feat_stride=16,
     bbox_outside_weights = _unmap(bbox_outside_weights, total_anchors, inds_inside, fill=0)
 
     if DEBUG:
-        print 'rpn: max max_overlaps', np.max(max_overlaps)
+        try:
+            print 'rpn: max max_overlaps', np.max(max_overlaps)
+        except:
+            print 'rpn: max max_overlaps', None
         print 'rpn: num_positives', np.sum(labels == 1)
         print 'rpn: num_negatives', np.sum(labels == 0)
         _fg_sum = np.sum(labels == 1)
@@ -388,4 +432,6 @@ def assign_anchor(feat_shape, gt_boxes, im_info, feat_stride=16,
              'bbox_target': bbox_targets,
              'bbox_inside_weight': bbox_inside_weights,
              'bbox_outside_weight': bbox_outside_weights}
+    if config.TRAIN.END2END == 1:
+        label.update({'gt_boxes': gt_boxes})
     return label

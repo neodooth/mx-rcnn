@@ -46,6 +46,8 @@ class MutableModule(BaseModule):
             self._max_label_shapes = []
         if self._fixed_param_prefix is None:
             self._fixed_param_prefix = []
+        print 'fixed_param_prefix'
+        print '\n'.join(self._fixed_param_prefix)
 
         fixed_param_names = list()
         for name in self._symbol.list_arguments():
@@ -53,6 +55,8 @@ class MutableModule(BaseModule):
                 if prefix in name:
                     fixed_param_names.append(name)
         self._fixed_param_names = fixed_param_names
+        print '_fixed_param_names'
+        print '\n'.join(self._fixed_param_names)
 
     def _reset_bind(self):
         self.binded = False
@@ -193,3 +197,6 @@ class MutableModule(BaseModule):
     def update_metric(self, eval_metric, labels):
         assert self.binded and self.params_initialized
         self._curr_module.update_metric(eval_metric, labels)
+
+    def install_monitor(self, monitor):
+        self._curr_module.install_monitor(monitor)

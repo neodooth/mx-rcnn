@@ -6,8 +6,9 @@ from config import config
 
 use_global_stats = True
 fix_gamma = False
+use_skip_connections = True
 
-def get_shared_conv(data):
+def get_shared_conv(data, skip_symbols = []):
     """
     shared convolutional layers
     :param data: Symbol
@@ -324,47 +325,51 @@ def get_shared_conv(data):
     res4b22 = mx.symbol.ElementWiseSum(name='res4b22', *[res4b21_relu,bn4b22_branch2c] , num_args=2)
     res4b22_relu = mx.symbol.Activation(name='res4b22_relu', data=res4b22 , act_type='relu')
 
+    skip_symbols += [res2c_relu, res3b3_relu]
+
     return res4b22_relu
 
 
-def get_unshared_part(data):
-    res5a_branch1 = mx.symbol.Convolution(name='res5a_branch1', data=data , num_filter=2048, pad=(0,0), kernel=(1,1), stride=(1,1), no_bias=True)
-    bn5a_branch1 = mx.symbol.BatchNorm(name='bn5a_branch1', data=res5a_branch1 , use_global_stats=use_global_stats, fix_gamma=fix_gamma)
-    res5a_branch2a = mx.symbol.Convolution(name='res5a_branch2a', data=data , num_filter=512, pad=(0,0), kernel=(1,1), stride=(1,1), no_bias=True)
-    bn5a_branch2a = mx.symbol.BatchNorm(name='bn5a_branch2a', data=res5a_branch2a , use_global_stats=use_global_stats, fix_gamma=fix_gamma)
-    res5a_branch2a_relu = mx.symbol.Activation(name='res5a_branch2a_relu', data=bn5a_branch2a , act_type='relu')
-    res5a_branch2b = mx.symbol.Convolution(name='res5a_branch2b', data=res5a_branch2a_relu , num_filter=512, pad=(1,1), kernel=(3,3), stride=(1,1), no_bias=True)
-    bn5a_branch2b = mx.symbol.BatchNorm(name='bn5a_branch2b', data=res5a_branch2b , use_global_stats=use_global_stats, fix_gamma=fix_gamma)
-    res5a_branch2b_relu = mx.symbol.Activation(name='res5a_branch2b_relu', data=bn5a_branch2b , act_type='relu')
-    res5a_branch2c = mx.symbol.Convolution(name='res5a_branch2c', data=res5a_branch2b_relu , num_filter=2048, pad=(0,0), kernel=(1,1), stride=(1,1), no_bias=True)
-    bn5a_branch2c = mx.symbol.BatchNorm(name='bn5a_branch2c', data=res5a_branch2c , use_global_stats=use_global_stats, fix_gamma=fix_gamma)
-    res5a = mx.symbol.ElementWiseSum(name='res5a', *[bn5a_branch1,bn5a_branch2c] , num_args=2)
-    res5a_relu = mx.symbol.Activation(name='res5a_relu', data=res5a , act_type='relu')
-    res5b_branch2a = mx.symbol.Convolution(name='res5b_branch2a', data=res5a_relu , num_filter=512, pad=(0,0), kernel=(1,1), stride=(1,1), no_bias=True)
-    bn5b_branch2a = mx.symbol.BatchNorm(name='bn5b_branch2a', data=res5b_branch2a , use_global_stats=use_global_stats, fix_gamma=fix_gamma)
-    res5b_branch2a_relu = mx.symbol.Activation(name='res5b_branch2a_relu', data=bn5b_branch2a , act_type='relu')
-    res5b_branch2b = mx.symbol.Convolution(name='res5b_branch2b', data=res5b_branch2a_relu , num_filter=512, pad=(1,1), kernel=(3,3), stride=(1,1), no_bias=True)
-    bn5b_branch2b = mx.symbol.BatchNorm(name='bn5b_branch2b', data=res5b_branch2b , use_global_stats=use_global_stats, fix_gamma=fix_gamma)
-    res5b_branch2b_relu = mx.symbol.Activation(name='res5b_branch2b_relu', data=bn5b_branch2b , act_type='relu')
-    res5b_branch2c = mx.symbol.Convolution(name='res5b_branch2c', data=res5b_branch2b_relu , num_filter=2048, pad=(0,0), kernel=(1,1), stride=(1,1), no_bias=True)
-    bn5b_branch2c = mx.symbol.BatchNorm(name='bn5b_branch2c', data=res5b_branch2c , use_global_stats=use_global_stats, fix_gamma=fix_gamma)
-    res5b = mx.symbol.ElementWiseSum(name='res5b', *[res5a_relu,bn5b_branch2c] , num_args=2)
-    res5b_relu = mx.symbol.Activation(name='res5b_relu', data=res5b , act_type='relu')
-    res5c_branch2a = mx.symbol.Convolution(name='res5c_branch2a', data=res5b_relu , num_filter=512, pad=(0,0), kernel=(1,1), stride=(1,1), no_bias=True)
-    bn5c_branch2a = mx.symbol.BatchNorm(name='bn5c_branch2a', data=res5c_branch2a , use_global_stats=use_global_stats, fix_gamma=fix_gamma)
-    res5c_branch2a_relu = mx.symbol.Activation(name='res5c_branch2a_relu', data=bn5c_branch2a , act_type='relu')
-    res5c_branch2b = mx.symbol.Convolution(name='res5c_branch2b', data=res5c_branch2a_relu , num_filter=512, pad=(1,1), kernel=(3,3), stride=(1,1), no_bias=True)
-    bn5c_branch2b = mx.symbol.BatchNorm(name='bn5c_branch2b', data=res5c_branch2b , use_global_stats=use_global_stats, fix_gamma=fix_gamma)
-    res5c_branch2b_relu = mx.symbol.Activation(name='res5c_branch2b_relu', data=bn5c_branch2b , act_type='relu')
-    res5c_branch2c = mx.symbol.Convolution(name='res5c_branch2c', data=res5c_branch2b_relu , num_filter=2048, pad=(0,0), kernel=(1,1), stride=(1,1), no_bias=True)
-    bn5c_branch2c = mx.symbol.BatchNorm(name='bn5c_branch2c', data=res5c_branch2c , use_global_stats=use_global_stats, fix_gamma=fix_gamma)
-    res5c = mx.symbol.ElementWiseSum(name='res5c', *[res5b_relu,bn5c_branch2c] , num_args=2)
-    res5c_relu = mx.symbol.Activation(name='res5c_relu', data=res5c , act_type='relu')
-    pool5 = mx.symbol.Pooling(name='pool5', data=res5c_relu , pad=(0,0), kernel=(7,7), stride=(1,1), pool_type='avg')
+def get_unshared_part(data, postfix=''):
+    if postfix != '':
+        postfix = '_' + postfix
+    res5a_branch1 = mx.symbol.Convolution(name='res5a_branch1' + postfix, data=data , num_filter=2048, pad=(0,0), kernel=(1,1), stride=(1,1), no_bias=True)
+    bn5a_branch1 = mx.symbol.BatchNorm(name='bn5a_branch1' + postfix, data=res5a_branch1 , use_global_stats=use_global_stats, fix_gamma=fix_gamma)
+    res5a_branch2a = mx.symbol.Convolution(name='res5a_branch2a' + postfix, data=data , num_filter=512, pad=(0,0), kernel=(1,1), stride=(1,1), no_bias=True)
+    bn5a_branch2a = mx.symbol.BatchNorm(name='bn5a_branch2a' + postfix, data=res5a_branch2a , use_global_stats=use_global_stats, fix_gamma=fix_gamma)
+    res5a_branch2a_relu = mx.symbol.Activation(name='res5a_branch2a_relu' + postfix, data=bn5a_branch2a , act_type='relu')
+    res5a_branch2b = mx.symbol.Convolution(name='res5a_branch2b' + postfix, data=res5a_branch2a_relu , num_filter=512, pad=(1,1), kernel=(3,3), stride=(1,1), no_bias=True)
+    bn5a_branch2b = mx.symbol.BatchNorm(name='bn5a_branch2b' + postfix, data=res5a_branch2b , use_global_stats=use_global_stats, fix_gamma=fix_gamma)
+    res5a_branch2b_relu = mx.symbol.Activation(name='res5a_branch2b_relu' + postfix, data=bn5a_branch2b , act_type='relu')
+    res5a_branch2c = mx.symbol.Convolution(name='res5a_branch2c' + postfix, data=res5a_branch2b_relu , num_filter=2048, pad=(0,0), kernel=(1,1), stride=(1,1), no_bias=True)
+    bn5a_branch2c = mx.symbol.BatchNorm(name='bn5a_branch2c' + postfix, data=res5a_branch2c , use_global_stats=use_global_stats, fix_gamma=fix_gamma)
+    res5a = mx.symbol.ElementWiseSum(name='res5a' + postfix, *[bn5a_branch1,bn5a_branch2c] , num_args=2)
+    res5a_relu = mx.symbol.Activation(name='res5a_relu' + postfix, data=res5a , act_type='relu')
+    res5b_branch2a = mx.symbol.Convolution(name='res5b_branch2a' + postfix, data=res5a_relu , num_filter=512, pad=(0,0), kernel=(1,1), stride=(1,1), no_bias=True)
+    bn5b_branch2a = mx.symbol.BatchNorm(name='bn5b_branch2a' + postfix, data=res5b_branch2a , use_global_stats=use_global_stats, fix_gamma=fix_gamma)
+    res5b_branch2a_relu = mx.symbol.Activation(name='res5b_branch2a_relu' + postfix, data=bn5b_branch2a , act_type='relu')
+    res5b_branch2b = mx.symbol.Convolution(name='res5b_branch2b' + postfix, data=res5b_branch2a_relu , num_filter=512, pad=(1,1), kernel=(3,3), stride=(1,1), no_bias=True)
+    bn5b_branch2b = mx.symbol.BatchNorm(name='bn5b_branch2b' + postfix, data=res5b_branch2b , use_global_stats=use_global_stats, fix_gamma=fix_gamma)
+    res5b_branch2b_relu = mx.symbol.Activation(name='res5b_branch2b_relu' + postfix, data=bn5b_branch2b , act_type='relu')
+    res5b_branch2c = mx.symbol.Convolution(name='res5b_branch2c' + postfix, data=res5b_branch2b_relu , num_filter=2048, pad=(0,0), kernel=(1,1), stride=(1,1), no_bias=True)
+    bn5b_branch2c = mx.symbol.BatchNorm(name='bn5b_branch2c' + postfix, data=res5b_branch2c , use_global_stats=use_global_stats, fix_gamma=fix_gamma)
+    res5b = mx.symbol.ElementWiseSum(name='res5b' + postfix, *[res5a_relu,bn5b_branch2c] , num_args=2)
+    res5b_relu = mx.symbol.Activation(name='res5b_relu' + postfix, data=res5b , act_type='relu')
+    res5c_branch2a = mx.symbol.Convolution(name='res5c_branch2a' + postfix, data=res5b_relu , num_filter=512, pad=(0,0), kernel=(1,1), stride=(1,1), no_bias=True)
+    bn5c_branch2a = mx.symbol.BatchNorm(name='bn5c_branch2a' + postfix, data=res5c_branch2a , use_global_stats=use_global_stats, fix_gamma=fix_gamma)
+    res5c_branch2a_relu = mx.symbol.Activation(name='res5c_branch2a_relu' + postfix, data=bn5c_branch2a , act_type='relu')
+    res5c_branch2b = mx.symbol.Convolution(name='res5c_branch2b' + postfix, data=res5c_branch2a_relu , num_filter=512, pad=(1,1), kernel=(3,3), stride=(1,1), no_bias=True)
+    bn5c_branch2b = mx.symbol.BatchNorm(name='bn5c_branch2b' + postfix, data=res5c_branch2b , use_global_stats=use_global_stats, fix_gamma=fix_gamma)
+    res5c_branch2b_relu = mx.symbol.Activation(name='res5c_branch2b_relu' + postfix, data=bn5c_branch2b , act_type='relu')
+    res5c_branch2c = mx.symbol.Convolution(name='res5c_branch2c' + postfix, data=res5c_branch2b_relu , num_filter=2048, pad=(0,0), kernel=(1,1), stride=(1,1), no_bias=True)
+    bn5c_branch2c = mx.symbol.BatchNorm(name='bn5c_branch2c' + postfix, data=res5c_branch2c , use_global_stats=use_global_stats, fix_gamma=fix_gamma)
+    res5c = mx.symbol.ElementWiseSum(name='res5c' + postfix, *[res5b_relu,bn5c_branch2c] , num_args=2)
+    res5c_relu = mx.symbol.Activation(name='res5c_relu' + postfix, data=res5c , act_type='relu')
+    pool5 = mx.symbol.Pooling(name='pool5' + postfix, data=res5c_relu , pad=(0,0), kernel=(7,7), stride=(1,1), pool_type='avg')
     return pool5
 
 
-def get_resnet_rcnn(num_classes=201):
+def get_resnet_rcnn(num_classes=201, roi_scales=[]):
     """
     Fast R-CNN with VGG 16 conv layers
     :param num_classes: used to determine output size
@@ -372,6 +377,7 @@ def get_resnet_rcnn(num_classes=201):
     """
     data = mx.symbol.Variable(name="data")
     rois = mx.symbol.Variable(name='rois')
+    rois_scale = {'roi_{}x'.format(_): mx.symbol.Variable(name='roi_{}x'.format(_)) for _ in roi_scales}
     label = mx.symbol.Variable(name='label')
     bbox_target = mx.symbol.Variable(name='bbox_target')
     bbox_inside_weight = mx.symbol.Variable(name='bbox_inside_weight')
@@ -385,12 +391,47 @@ def get_resnet_rcnn(num_classes=201):
     bbox_outside_weight = mx.symbol.Reshape(data=bbox_outside_weight, shape=(-1, 4 * num_classes), name='bbox_outside_weight_reshape')
 
     # shared convolutional layers
-    shared_conv = get_shared_conv(data)
+    skip_symbols = []
+    shared_conv = get_shared_conv(data, skip_symbols)
 
     # Fast R-CNN
     roipool = mx.symbol.ROIPooling(
         name='roi_pool5', data=shared_conv, rois=rois, pooled_size=(7, 7), spatial_scale=0.0625) # 1/16
-    unshared = get_unshared_part(roipool)
+
+    if use_skip_connections: # skip connection
+        # roipool = mx.symbol.L2Normalization(roipool, name='l2norm_roipool')
+
+        # roipool_3b3 = mx.symbol.ROIPooling(
+        #     name='roi_pool5_3b3', data=skip_symbols[1], rois=rois, pooled_size=(7, 7), spatial_scale=125./1000.)
+        # roipool_3b3 = mx.symbol.L2Normalization(roipool_3b3, name='l2norm_roipool_3b3')
+
+        # shared_conv_1x = mx.symbol.Concat(*[roipool, roipool_3b3], name='concat_shared_1x', dim=1)
+        # shared_conv_1x = mx.symbol.Convolution(name='shared_conv_reduce', data=shared_conv_1x , num_filter=1024, pad=(0,0), kernel=(1,1), stride=(1,1), no_bias=True)
+        # shared_conv_1x = mx.symbol.Activation(name='share_conv_reduce_relu', data=shared_conv_1x , act_type='relu')
+        # unshared_1x = get_unshared_part(shared_conv_1x)
+        unshared = get_unshared_part(roipool)
+
+        # features = [unshared_1x]
+        features = [unshared]
+        for pf in ['roi_{}x'.format(_) for _ in roi_scales]:
+            rois = mx.symbol.Reshape(data=rois_scale[pf], shape=(-1, 5), name='rois_reshape_' + pf)
+            # roipool_3b3 = mx.symbol.ROIPooling(
+            #     name='roi_pool5_3b3_' + pf, data=skip_symbols[1], rois=rois, pooled_size=(7, 7), spatial_scale=125./1000.)
+            # roipool_3b3 = mx.symbol.L2Normalization(roipool_3b3, name='l2norm_roipool_3b3_' + pf)
+            roipool = mx.symbol.ROIPooling(
+                name='roi_pool5_' + pf, data=shared_conv, rois=rois, pooled_size=(7, 7), spatial_scale=0.0625) # 1/16
+            # roipool = mx.symbol.L2Normalization(roipool, name='l2norm_roipool_' + pf)
+            # shared_conv = mx.symbol.Concat(*[roipool_3b3, roipool], name='concat_shared_' + pf)
+            # shared_conv = mx.symbol.Convolution(name='shared_conv_reduce_' + pf, data=shared_conv , num_filter=1024, pad=(0,0), kernel=(1,1), stride=(1,1), no_bias=True)
+            # shared_conv = mx.symbol.Activation(name='share_conv_reduce_relu_' + pf, data=shared_conv , act_type='relu')
+            # unshared = get_unshared_part(shared_conv, pf)
+            unshared = get_unshared_part(roipool, pf)
+            features.append(unshared)
+        unshared = mx.symbol.Concat(*features, name='concat', dim=1)
+        # unshared = unshared_1x
+    else:
+        unshared = get_unshared_part(roipool)
+
     # classification
     cls_score = mx.symbol.FullyConnected(name='cls_score', data=unshared, num_hidden=num_classes)
     cls_prob = mx.symbol.SoftmaxOutput(name='cls_prob', data=cls_score, label=label)
@@ -410,7 +451,7 @@ def get_resnet_rcnn(num_classes=201):
     return group
 
 
-def get_resnet_rcnn_test(num_classes=201):
+def get_resnet_rcnn_test(num_classes=201, roi_scales=[]):
     """
     Fast R-CNN Network with VGG
     :param num_classes: used to determine output size
@@ -418,6 +459,7 @@ def get_resnet_rcnn_test(num_classes=201):
     """
     data = mx.symbol.Variable(name="data")
     rois = mx.symbol.Variable(name='rois')
+    rois_scale = {'roi_{}x'.format(_): mx.symbol.Variable(name='roi_{}x'.format(_)) for _ in roi_scales}
 
     # reshape rois
     rois = mx.symbol.Reshape(data=rois, shape=(-1, 5), name='rois_reshape')
@@ -428,7 +470,41 @@ def get_resnet_rcnn_test(num_classes=201):
     # Fast R-CNN
     roipool = mx.symbol.ROIPooling(
         name='roi_pool5', data=shared_conv, rois=rois, pooled_size=(7, 7), spatial_scale=0.0625)
-    unshared = get_unshared_part(roipool)
+
+    if use_skip_connections: # skip connection
+        # roipool = mx.symbol.L2Normalization(roipool, name='l2norm_roipool')
+
+        # roipool_3b3 = mx.symbol.ROIPooling(
+        #     name='roi_pool5_3b3', data=skip_symbols[1], rois=rois, pooled_size=(7, 7), spatial_scale=125./1000.)
+        # roipool_3b3 = mx.symbol.L2Normalization(roipool_3b3, name='l2norm_roipool_3b3')
+
+        # shared_conv_1x = mx.symbol.Concat(*[roipool, roipool_3b3], name='concat_shared_1x', dim=1)
+        # shared_conv_1x = mx.symbol.Convolution(name='shared_conv_reduce', data=shared_conv_1x , num_filter=1024, pad=(0,0), kernel=(1,1), stride=(1,1), no_bias=True)
+        # shared_conv_1x = mx.symbol.Activation(name='share_conv_reduce_relu', data=shared_conv_1x , act_type='relu')
+        # unshared_1x = get_unshared_part(shared_conv_1x)
+        unshared = get_unshared_part(roipool)
+
+        # features = [unshared_1x]
+        features = [unshared]
+        for pf in ['roi_{}x'.format(_) for _ in roi_scales]:
+            rois = mx.symbol.Reshape(data=rois_scale[pf], shape=(-1, 5), name='rois_reshape_' + pf)
+            # roipool_3b3 = mx.symbol.ROIPooling(
+            #     name='roi_pool5_3b3_' + pf, data=skip_symbols[1], rois=rois, pooled_size=(7, 7), spatial_scale=125./1000.)
+            # roipool_3b3 = mx.symbol.L2Normalization(roipool_3b3, name='l2norm_roipool_3b3_' + pf)
+            roipool = mx.symbol.ROIPooling(
+                name='roi_pool5_' + pf, data=shared_conv, rois=rois, pooled_size=(7, 7), spatial_scale=0.0625) # 1/16
+            # roipool = mx.symbol.L2Normalization(roipool, name='l2norm_roipool_' + pf)
+            # shared_conv = mx.symbol.Concat(*[roipool_3b3, roipool], name='concat_shared_' + pf)
+            # shared_conv = mx.symbol.Convolution(name='shared_conv_reduce_' + pf, data=shared_conv , num_filter=1024, pad=(0,0), kernel=(1,1), stride=(1,1), no_bias=True)
+            # shared_conv = mx.symbol.Activation(name='share_conv_reduce_relu_' + pf, data=shared_conv , act_type='relu')
+            # unshared = get_unshared_part(shared_conv, pf)
+            unshared = get_unshared_part(roipool, pf)
+            features.append(unshared)
+        unshared = mx.symbol.Concat(*features, name='concat', dim=1)
+        # unshared = unshared_1x
+    else:
+        unshared = get_unshared_part(roipool)
+
     # classification
     cls_score = mx.symbol.FullyConnected(name='cls_score', data=unshared, num_hidden=num_classes)
     cls_prob = mx.symbol.SoftmaxOutput(name='cls_prob', data=cls_score)
@@ -480,7 +556,7 @@ def get_resnet_rpn(num_classes=201, num_anchors=9):
     bbox_loss_ = bbox_outside_weight * \
                  mx.symbol.smooth_l1(name='bbox_loss_', scalar=3.0,
                                      data=bbox_inside_weight * (rpn_bbox_pred - bbox_target))
-    bbox_loss = mx.sym.MakeLoss(name='bbox_loss', data=bbox_loss_, grad_scale=1.)
+    bbox_loss = mx.sym.MakeLoss(name='bbox_loss', data=bbox_loss_, grad_scale=3.)
 
     # debug layers
     sym_group = []

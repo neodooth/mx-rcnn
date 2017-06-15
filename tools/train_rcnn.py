@@ -1,6 +1,8 @@
 import argparse
 import logging
 import os
+import gc
+# import ipdb as pdb
 
 import mxnet as mx
 
@@ -10,35 +12,67 @@ from rcnn.loader import ROIIter
 from rcnn.metric import AccuracyMetric, LogLossMetric, SmoothL1LossMetric
 from rcnn.module import MutableModule
 from rcnn.symbol import get_vgg_rcnn
-from utils.load_data import load_ss_roidb, load_rpn_roidb
+from rcnn.symbol_resnet101 import get_resnet_rcnn
+from utils.load_data import load_ilsvrc_ss_roidb
+from utils.load_data import load_ilsvrc_rpn_roidb
 from utils.load_model import load_checkpoint, load_param
 from utils.save_model import save_checkpoint
 
 
+def copy_unshared_resnet_params(args, auxs, postfixes):
+    for a in [args, auxs]:
+        for k in a.keys():
+            for pf in postfixes:
+                if 'res5' in k or 'bn5' in k and 'branch' in k and 'relu' not in k and 'pool' not in k and pf not in k:
+                    sp = k.split('_')
+                    if 'moving' in sp: # bn
+                        newk = '_'.join(sp[:-2]) + '_' + pf + '_' + '_'.join(sp[-2:])
+                    else:
+                        newk = '_'.join(sp[:-1]) + '_' + pf + '_' + sp[-1]
+                    print 'copy', k, newk
+                    a[newk] = mx.nd.array(a[k].asnumpy())
+    # pdb.set_trace()
+
+
 def train_rcnn(image_set, year, root_path, devkit_path, pretrained, epoch,
                prefix, ctx, begin_epoch, end_epoch, frequent, kv_store,
-               work_load_list=None, resume=False, proposal='rpn'):
+               work_load_list=None, resume=False, proposal='rpn', lr=0.001, net='vgg'):
     # set up logger
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
 
+    roi_scales = [2]
+
     # load symbol
-    sym = get_vgg_rcnn()
+    sym = eval('get_' + net + '_rcnn')(roi_scales=roi_scales)
+
+    # bs = config.TRAIN.BATCH_IMAGES * len(ctx)
+    # s = {'data': (bs, 3, 1000, 1000),'rois': (bs, 64, 5), 'label': (bs, 64), 'bbox_target': (bs, 64, 4 * 201), 'bbox_inside_weight': (bs, 64, 4 * 201), 'bbox_outside_weight': (bs, 64, 4 * 201)}
+    # for sc in roi_scales:
+    #     s['roi_{}x'.format(sc)] = (config.TRAIN.BATCH_SIZE * len(ctx), 5)
+    # net_img = mx.visualization.plot_network(sym, shape=s, node_attrs={"fixedsize":"fasle"})
+    # print net_img
+    # net_img.render('net_image/' + net + '/train_rcnn-multiscaleroi')
 
     # setup multi-gpu
     config.TRAIN.BATCH_IMAGES *= len(ctx)
     config.TRAIN.BATCH_SIZE *= len(ctx)
 
+    # load pretrained
+    print 'loading pretrained', pretrained, 'epoch', epoch
+    args, auxs = load_param(pretrained, epoch, convert=True)
+
+    print 'learning rate', lr
+    print 'resume?', resume
+
     # load training data
-    voc, roidb, means, stds = eval('load_' + proposal + '_roidb')(image_set, year, root_path, devkit_path, flip=True)
+    voc, roidb, means, stds = eval('load_ilsvrc_' + proposal + '_roidb')(image_set, year, root_path, devkit_path) #, flip=True)
+    gc.collect()
     train_data = ROIIter(roidb, batch_size=config.TRAIN.BATCH_IMAGES, shuffle=True, mode='train',
-                         ctx=ctx, work_load_list=work_load_list)
+                         ctx=ctx, work_load_list=work_load_list, roi_scales=roi_scales)
 
     # infer max shape
     max_data_shape = [('data', (config.TRAIN.BATCH_IMAGES, 3, 1000, 1000))]
-
-    # load pretrained
-    args, auxs = load_param(pretrained, epoch, convert=True)
 
     # initialize params
     if not resume:
@@ -49,12 +83,30 @@ def train_rcnn(image_set, year, root_path, devkit_path, pretrained, epoch,
         args['cls_score_bias'] = mx.nd.zeros(shape=arg_shape_dict['cls_score_bias'])
         args['bbox_pred_weight'] = mx.random.normal(0, 0.001, shape=arg_shape_dict['bbox_pred_weight'])
         args['bbox_pred_bias'] = mx.nd.zeros(shape=arg_shape_dict['bbox_pred_bias'])
+        # args['shared_conv_reduce_weight'] = mx.random.normal(0, 0.01, shape=(1024, 1536, 1, 1))
+        # for sc in roi_scales:
+        #     args['shared_conv_reduce_roi_{}x_weight'.format(sc)] = mx.random.normal(0, 0.01, shape=(1024, 1536, 1, 1))
+        postfixes = ['roi_{}x'.format(sc) for sc in roi_scales]
+        copy_unshared_resnet_params(args, auxs, postfixes)
 
     # prepare training
-    if config.TRAIN.FINETUNE:
-        fixed_param_prefix = ['conv1', 'conv2', 'conv3', 'conv4', 'conv5']
+    if net == 'vgg':
+        if config.TRAIN.FINETUNE:
+            fixed_param_prefix = ['conv1', 'conv2', 'conv3', 'conv4', 'conv5']
+        else:
+            fixed_param_prefix = ['conv1', 'conv2']
+    elif net == 'resnet':
+        if config.TRAIN.FINETUNE:
+            fixed_param_prefix = ['conv1', 'res2', 'res3', 'res4']
+        else:
+            fixed_param_prefix = ['conv1', 'res2', 'res3']
+        fixed_param_prefix.append('bn')
     else:
-        fixed_param_prefix = ['conv1', 'conv2']
+        print 'Unknown net', net, ', use VGG fixed_aram'
+        if config.TRAIN.FINETUNE:
+            fixed_param_prefix = ['conv1', 'conv2', 'conv3', 'conv4', 'conv5']
+        else:
+            fixed_param_prefix = ['conv1', 'conv2']
     data_names = [k[0] for k in train_data.provide_data]
     label_names = [k[0] for k in train_data.provide_label]
     batch_end_callback = Speedometer(train_data.batch_size, frequent=frequent)
@@ -71,8 +123,8 @@ def train_rcnn(image_set, year, root_path, devkit_path, pretrained, epoch,
         eval_metrics.add(child_metric)
     optimizer_params = {'momentum': 0.9,
                         'wd': 0.0005,
-                        'learning_rate': 0.001,
-                        'lr_scheduler': mx.lr_scheduler.FactorScheduler(30000, 0.1),
+                        'learning_rate': lr,
+                        # 'lr_scheduler': mx.lr_scheduler.FactorScheduler(30000, 0.1),
                         'rescale_grad': (1.0 / config.TRAIN.BATCH_SIZE)}
 
     # train
@@ -85,12 +137,11 @@ def train_rcnn(image_set, year, root_path, devkit_path, pretrained, epoch,
             arg_params=args, aux_params=auxs, begin_epoch=begin_epoch, num_epoch=end_epoch)
 
     # edit params and save
-    for epoch in range(begin_epoch + 1, end_epoch + 1):
-        arg_params, aux_params = load_checkpoint(prefix, epoch)
-        arg_params['bbox_pred_weight'] = (arg_params['bbox_pred_weight'].T * mx.nd.array(stds)).T
-        arg_params['bbox_pred_bias'] = arg_params['bbox_pred_bias'] * mx.nd.array(stds) + \
-                                       mx.nd.array(means)
-        save_checkpoint(prefix, epoch, arg_params, aux_params)
+    # for epoch in range(begin_epoch + 1, end_epoch + 1):
+    #     arg_params, aux_params = load_checkpoint(prefix, epoch)
+    #     arg_params['bbox_pred_weight'] = (arg_params['bbox_pred_weight'].T * mx.nd.array(stds)).T
+    #     arg_params['bbox_pred_bias'] = arg_params['bbox_pred_bias'] * mx.nd.array(stds) + mx.nd.array(means)
+    #     save_checkpoint(prefix + '-edit_params', epoch, arg_params, aux_params)
 
 
 def parse_args():

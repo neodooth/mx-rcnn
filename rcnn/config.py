@@ -5,9 +5,9 @@ config = edict()
 
 # image processing config
 config.EPS = 1e-14
-config.PIXEL_MEANS = np.array([[[123.68, 116.779, 103.939]]])
-config.SCALES = (600, )  # single scale training and testing
-config.MAX_SIZE = 1000
+config.PIXEL_MEANS = np.array([[[128., 128., 128.]]])
+config.SCALES = (800, )  # single scale training and testing
+config.MAX_SIZE = 1333
 
 # nms config
 config.USE_GPU_NMS = True
@@ -43,14 +43,16 @@ config.TRAIN.RPN_POSITIVE_WEIGHT = -1.0
 
 # used for end2end training
 # RPN proposal
+config.TRAIN.END2END = 0
 config.TRAIN.RPN_NMS_THRESH = 0.7
 config.TRAIN.RPN_PRE_NMS_TOP_N = 12000
 config.TRAIN.RPN_POST_NMS_TOP_N = 6000
-config.TRAIN.RPN_MIN_SIZE = 16
+config.TRAIN.RPN_MIN_SIZE = 5
 # approximate bounding box regression
 config.TRAIN.BBOX_NORMALIZATION_PRECOMPUTED = False
 config.TRAIN.BBOX_MEANS = (0.0, 0.0, 0.0, 0.0)
 config.TRAIN.BBOX_STDS = (0.1, 0.1, 0.2, 0.2)
+config.TRAIN.IMS_PER_BATCH = 1
 
 config.TEST = edict()
 
@@ -64,4 +66,4 @@ config.TEST.DEDUP_BOXES = 1. / 16.
 config.TEST.RPN_NMS_THRESH = 0.7
 config.TEST.RPN_PRE_NMS_TOP_N = 6000
 config.TEST.RPN_POST_NMS_TOP_N = 300
-config.TEST.RPN_MIN_SIZE = 16
+config.TEST.RPN_MIN_SIZE = 5

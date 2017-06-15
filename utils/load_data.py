@@ -5,6 +5,8 @@ from helper.dataset.pascal_voc import PascalVOC
 from helper.processing.roidb import prepare_roidb, add_bbox_regression_targets
 from helper.dataset.ilsvrc import ILSVRC
 
+import time
+
 
 def load_ss_roidb(image_set, year, root_path, devkit_path, flip=False):
     voc = PascalVOC(image_set, year, root_path, devkit_path)
@@ -68,6 +70,7 @@ def load_ilsvrc_gt_roidb(image_set, year, root_path, devkit_path, flip=False):
     cache_file = os.path.join(ilsvrc.cache_path, ilsvrc.name + '_prepared_gt_roidb.pkl')
     if flip == False:
         cache_file = os.path.join(ilsvrc.cache_path, ilsvrc.name + '_prepared_gt_roidb_noflip.pkl')
+    print 'gt_roidb', cache_file
     if os.path.exists(cache_file):
         with open(cache_file, 'rb') as fid:
             gt_roidb = cPickle.load(fid)
@@ -139,7 +142,19 @@ def load_ilsvrc_test_ss_roidb(image_set, year, root_path, devkit_path):
 
 def load_ilsvrc_test_rpn_roidb(image_set, year, root_path, devkit_path):
     ilsvrc = ILSVRC(image_set, year, root_path, devkit_path)
-    gt_roidb = ilsvrc.gt_roidb()
-    rpn_roidb = ilsvrc.rpn_roidb(gt_roidb)
-    prepare_roidb(ilsvrc, rpn_roidb)
+    cache_file_rpn_roidb = os.path.join(ilsvrc.cache_path, ilsvrc.name + '_rpn_roidb.pkl')
+    if os.path.exists(cache_file_rpn_roidb):
+        print 'loading', cache_file_rpn_roidb
+        with open(cache_file_rpn_roidb, 'rb') as f:
+            rpn_roidb = cPickle.load(f)
+        print '{} rpn roidb loaded from {}'.format(ilsvrc.name, cache_file_rpn_roidb)
+    else:
+        print 'did not found {}'.format(cache_file_rpn_roidb)
+        gt_roidb = ilsvrc.gt_roidb()
+        rpn_roidb = ilsvrc.rpn_roidb(gt_roidb)
+        prepare_roidb(ilsvrc, rpn_roidb)
+        with open(cache_file_rpn_roidb, 'wb') as f:
+            cPickle.dump(rpn_roidb, f, cPickle.HIGHEST_PROTOCOL)
+        print 'wrote rpn roidb to {}'.format(cache_file_rpn_roidb)
+
     return ilsvrc, rpn_roidb

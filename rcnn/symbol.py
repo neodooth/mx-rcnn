@@ -65,7 +65,7 @@ def get_vgg_conv(data):
     return relu5_3
 
 
-def get_vgg_rcnn(num_classes=21):
+def get_vgg_rcnn(num_classes=201):
     """
     Fast R-CNN with VGG 16 conv layers
     :param num_classes: used to determine output size
@@ -119,7 +119,7 @@ def get_vgg_rcnn(num_classes=21):
     return group
 
 
-def get_vgg_rcnn_test(num_classes=21):
+def get_vgg_rcnn_test(num_classes=201):
     """
     Fast R-CNN Network with VGG
     :param num_classes: used to determine output size
@@ -133,7 +133,7 @@ def get_vgg_rcnn_test(num_classes=21):
 
     # shared convolutional layer
     relu5_3 = get_vgg_conv(data)
-    
+
     # Fast R-CNN
     pool5 = mx.symbol.ROIPooling(
         name='roi_pool5', data=relu5_3, rois=rois, pooled_size=(7, 7), spatial_scale=0.0625)
@@ -161,7 +161,7 @@ def get_vgg_rcnn_test(num_classes=21):
     return group
 
 
-def get_vgg_rpn(num_classes=21, num_anchors=9):
+def get_vgg_rpn(num_classes=201, num_anchors=9):
     """
     Region Proposal Network with VGG
     :param num_classes: used to determine output size
@@ -203,7 +203,7 @@ def get_vgg_rpn(num_classes=21, num_anchors=9):
     return group
 
 
-def get_vgg_rpn_test(num_classes=21, num_anchors=9):
+def get_vgg_rpn_test(num_classes=201, num_anchors=9):
     """
     Region Proposal Network with VGG
     :param num_classes: used to determine output size
@@ -241,7 +241,7 @@ def get_vgg_rpn_test(num_classes=21, num_anchors=9):
     return group
 
 
-def get_vgg_test(num_classes=21, num_anchors=9):
+def get_vgg_test(num_classes=201, num_anchors=9):
     """
     Faster R-CNN test with VGG 16 conv layers
     :param num_classes: used to determine output size

@@ -11,6 +11,7 @@ from rcnn.config import config
 from helper.processing.generate_anchor import generate_anchors
 from helper.processing.bbox_transform import bbox_pred, clip_boxes
 from helper.processing.nms import nms
+import logging
 
 DEBUG = False
 
@@ -93,6 +94,7 @@ class ProposalOperator(mx.operator.CustomOp):
         # reshape to (1 * H * W * A, 4) where rows are ordered by (h, w, a)
         # in slowest to fastest order
         bbox_deltas = bbox_deltas.transpose((0, 2, 3, 1)).reshape((-1, 4))
+        # print 'bbox_deltas', bbox_deltas
 
         # Same story for the scores:
         #
@@ -103,13 +105,17 @@ class ProposalOperator(mx.operator.CustomOp):
 
         # Convert anchors into proposals via bbox transformations
         proposals = bbox_pred(anchors, bbox_deltas)
+        # print 'proposals1', proposals
 
         # 2. clip predicted boxes to image
-        proposals = clip_boxes(proposals, im_info[:2])
+        proposals_ = clip_boxes(proposals, im_info[:2])
+        proposals = proposals if len(proposals_) < 1 and self.cfg_key == 'TRAIN' else proposals_
 
         # 3. remove predicted boxes with either height or width < threshold
         # (NOTE: convert min_size to input image scale stored in im_info[2])
-        keep = ProposalOperator._filter_boxes(proposals, min_size * im_info[2])
+        keep_ = ProposalOperator._filter_boxes(proposals, min_size * im_info[2])
+        keep = np.arange(0, len(proposals)) if len(keep_) < 1 and self.cfg_key == 'TRAIN' else keep_
+
         proposals = proposals[keep, :]
         scores = scores[keep]
 
@@ -124,11 +130,14 @@ class ProposalOperator(mx.operator.CustomOp):
         # 6. apply nms (e.g. threshold = 0.7)
         # 7. take after_nms_topN (e.g. 300)
         # 8. return the top proposals (-> RoIs top)
-        keep = nms(np.hstack((proposals, scores)), nms_thresh)
+        keep_ = nms(np.hstack((proposals, scores)), nms_thresh)
+        keep = np.arange(0, len(proposals)) if len(keep_) < 1 and self.cfg_key == 'TRAIN' else keep_
         if post_nms_topN > 0:
             keep = keep[:post_nms_topN]
         # pad to ensure output size remains unchanged
         if len(keep) < post_nms_topN:
+            if len(keep) == 0:
+                logging.log(logging.ERROR, "currently len(keep) is zero")
             pad = npr.choice(keep, size=post_nms_topN - len(keep))
             keep = np.hstack((keep, pad))
         proposals = proposals[keep, :]
@@ -144,8 +153,10 @@ class ProposalOperator(mx.operator.CustomOp):
         if self._output_score:
             self.assign(out_data[1], req[1], scores.astype(np.float32, copy=False))
 
+
     def backward(self, req, out_grad, in_data, out_data, in_grad, aux):
-        pass
+        self.assign(in_grad[0], req[0], 0)
+        self.assign(in_grad[1], req[0], 0)
 
     @staticmethod
     def _filter_boxes(boxes, min_size):
